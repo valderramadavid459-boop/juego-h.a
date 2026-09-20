@@ -1,2 +1,944 @@
 # juego-h.a
 juego h.a
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bloodstream Dodge</title>
+  <style>
+    :root {
+      --bg1: #26070d;
+      --bg2: #5b101b;
+      --panel: rgba(47, 8, 18, 0.82);
+      --text: #fff1f2;
+      --accent: #ff8f9a;
+      --accent2: #ffbdc4;
+      --danger: #ff5264;
+      --success: #ffd166;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at top, rgba(255, 126, 143, 0.28), transparent 32%),
+        linear-gradient(160deg, var(--bg1), var(--bg2));
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    .game-shell {
+      width: min(92vw, 930px);
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 18px;
+      box-shadow: 0 18px 54px rgba(0,0,0,0.35);
+      padding: 18px 18px 12px;
+      backdrop-filter: blur(6px);
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.5rem, 3vw, 2.5rem);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--accent);
+      text-shadow: 0 0 18px rgba(255, 104, 120, 0.6);
+    }
+
+    .hud {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
+
+    .pill {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 999px;
+      padding: 8px 14px;
+    }
+
+    .pill span {
+      color: var(--accent2);
+    }
+
+    .pill .status-good { color: var(--success); }
+    .pill .status-danger { color: var(--danger); }
+
+    canvas {
+      width: 100%;
+      display: block;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #5f1522 0%, #8c2332 48%, #4a0c18 100%);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .message {
+      min-height: 28px;
+      margin-top: 12px;
+      text-align: center;
+      color: #dfeaf9;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    @media (max-width: 640px) {
+      .game-shell { padding: 12px 12px 10px; }
+      .topbar { justify-content: center; }
+      .hud { justify-content: center; }
+      .message { font-size: 0.7rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="game-shell">
+    <div class="topbar">
+      <h1>Bloodstream Dodge</h1>
+      <div class="hud">
+        <div class="pill">Puntuación: <span id="score">0</span></div>
+        <div class="pill">Mejor: <span id="best">0</span></div>
+        <div class="pill">Vidas: <span id="lives">3</span></div>
+        <div class="pill">Hormonas: <span id="hormoneStatus" class="status-danger">0/3</span></div>
+        <div class="pill">Barrera: <span id="bossStatus">---</span></div>
+      </div>
+    </div>
+
+    <canvas id="gameCanvas" width="900" height="520" aria-label="Juego de esquivar glóbulos rojos"></canvas>
+    <div id="message" class="message">Pulsa ESPACIO para empezar</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const livesEl = document.getElementById('lives');
+    const hormoneStatusEl = document.getElementById('hormoneStatus');
+    const bossStatusEl = document.getElementById('bossStatus');
+    const messageEl = document.getElementById('message');
+
+    const bgStars = [];
+    const bonusItems = [];
+    const asteroids = [];
+    const particles = [];
+    const lasers = [];
+    const bossShots = [];
+
+    let lastTime = 0;
+    let spawnTimer = 0;
+    let starTimer = 0;
+    let score = 0;
+    let bestScore = Number(localStorage.getItem('cosmicDodgeBest') || 0);
+    let state = 'ready';
+    let player;
+    let keys = { left: false, right: false, up: false, down: false };
+    let hormone = null;
+    let hormoneCount = 0;
+    let hormoneDelivered = false;
+    let boss = null;
+    let brain = null;
+    let finalTimer = 0;
+    let shootCooldown = 0;
+
+    function resetPlayer() {
+      player = {
+        x: canvas.width / 2,
+        y: canvas.height - 46,
+        width: 42,
+        height: 28,
+        speed: 8,
+        lives: 3
+      };
+    }
+
+    function setupStars() {
+      bgStars.length = 0;
+      for (let i = 0; i < 95; i++) {
+        bgStars.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          r: Math.random() * 2.2 + 0.6,
+          alpha: Math.random() * 0.45 + 0.15,
+          speed: Math.random() * 0.4 + 0.2
+        });
+      }
+    }
+
+    function hexToRgba(hex, alpha) {
+      const value = hex.replace('#', '');
+      const full = value.length === 3
+        ? value.split('').map((char) => char + char).join('')
+        : value;
+      const num = Number.parseInt(full, 16);
+      const r = (num >> 16) & 255;
+      const g = (num >> 8) & 255;
+      const b = num & 255;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    function updateHud() {
+      scoreEl.textContent = score;
+      bestEl.textContent = bestScore;
+      livesEl.textContent = player ? player.lives : 0;
+      hormoneStatusEl.textContent = hormoneDelivered ? 'Entregadas' : `${hormoneCount}/3`;
+      hormoneStatusEl.className = hormoneCount >= 3 ? 'status-good' : 'status-danger';
+      bossStatusEl.textContent = boss ? `${Math.ceil(boss.health)}%` : state === 'final' || state === 'won' ? 'Derrotado' : '---';
+    }
+
+    function updateBackground(dt) {
+      for (const star of bgStars) {
+        star.y += star.speed * dt * 26;
+        if (star.y > canvas.height) {
+          star.y = -5;
+          star.x = Math.random() * canvas.width;
+        }
+      }
+    }
+
+    function createAsteroid() {
+      const size = Math.random() * 22 + 18;
+      asteroids.push({
+        x: Math.random() * (canvas.width - size * 2) + size,
+        y: -size,
+        radius: size,
+        speed: Math.random() * 170 + 120 + score * 0.3,
+        spin: (Math.random() - 0.5) * 2.6,
+        rotation: Math.random() * Math.PI * 2,
+        drift: (Math.random() - 0.5) * 2.4
+      });
+    }
+
+    function createStarsBonus() {
+      const size = 12;
+      bonusItems.push({
+        x: Math.random() * (canvas.width - size * 2) + size,
+        y: -size,
+        size,
+        speed: 150 + score * 0.2,
+        pulse: Math.random() * Math.PI * 2
+      });
+    }
+
+    function createHormone() {
+      hormone = {
+        x: Math.random() * (canvas.width - 80) + 40,
+        y: -24,
+        size: 16,
+        speed: 120,
+        pulse: 0
+      };
+    }
+
+    function createParticles(x, y, color, amount) {
+      for (let i = 0; i < amount; i++) {
+        particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 180,
+          vy: (Math.random() - 0.5) * 180,
+          life: 0.7 + Math.random() * 0.5,
+          color,
+          radius: Math.random() * 3 + 1
+        });
+      }
+    }
+
+    function startGame() {
+      resetPlayer();
+      asteroids.length = 0;
+      bonusItems.length = 0;
+      particles.length = 0;
+      lasers.length = 0;
+      bossShots.length = 0;
+      hormone = null;
+      hormoneCount = 0;
+      hormoneDelivered = false;
+      boss = null;
+      brain = null;
+      finalTimer = 0;
+      shootCooldown = 0;
+      score = 0;
+      scoreEl.textContent = score;
+      state = 'playing';
+      spawnTimer = 0.7;
+      starTimer = 1.8;
+      messageEl.textContent = '¡Sobrevive!';
+      updateHud();
+    }
+
+    function endGame(reason = 'Juego terminado. Pulsa ESPACIO para repetir') {
+      state = 'gameover';
+      bestScore = Math.max(bestScore, score);
+      localStorage.setItem('cosmicDodgeBest', String(bestScore));
+      updateHud();
+      messageEl.textContent = reason;
+    }
+
+    function startBossFight() {
+      state = 'boss';
+      asteroids.length = 0;
+      bonusItems.length = 0;
+      lasers.length = 0;
+      bossShots.length = 0;
+      boss = { x: canvas.width / 2, y: 88, health: 100, pulse: 0, attackTimer: 1 };
+      messageEl.textContent = '¡Barrera vascular! Pulsa ESPACIO para abrir una brecha';
+      updateHud();
+    }
+
+    function defeatBoss() {
+      state = 'final';
+      asteroids.length = 0;
+      lasers.length = 0;
+      bossShots.length = 0;
+      boss = null;
+      brain = { x: canvas.width / 2, y: 92, pulse: 0 };
+      finalTimer = 0;
+      messageEl.textContent = '¡Barrera rota! Lleva la hormona al cerebro';
+      updateHud();
+    }
+
+    function winGame() {
+      state = 'won';
+      hormoneDelivered = true;
+      score += 500;
+      bestScore = Math.max(bestScore, score);
+      localStorage.setItem('cosmicDodgeBest', String(bestScore));
+      createParticles(player.x, player.y, '#7ef29a', 42);
+      messageEl.textContent = '¡Victoria! La hormona llegó al cerebro. Pulsa ESPACIO para jugar otra vez';
+      updateHud();
+    }
+
+    function movePlayer(dt) {
+      if (keys.left) player.x -= player.speed * 60 * dt;
+      if (keys.right) player.x += player.speed * 60 * dt;
+      if (keys.up) player.y -= player.speed * 60 * dt;
+      if (keys.down) player.y += player.speed * 60 * dt;
+      player.x = Math.max(player.width / 2, Math.min(canvas.width - player.width / 2, player.x));
+      player.y = Math.max(34, Math.min(canvas.height - 24, player.y));
+    }
+
+    function fireLaser() {
+      if (shootCooldown > 0 || (state !== 'playing' && state !== 'boss' && state !== 'final')) return;
+      lasers.push({ x: player.x, y: player.y - 28, width: 4, height: 18, speed: 470 });
+      shootCooldown = 0.22;
+    }
+
+    function createBossShot() {
+      bossShots.push({
+        x: boss.x + (Math.random() - 0.5) * 46,
+        y: boss.y + 42,
+        radius: 8,
+        speed: 230
+      });
+    }
+
+    function handleBossShotCollision(shot) {
+      if (Math.abs(shot.x - player.x) < shot.radius + player.width * 0.5 &&
+          Math.abs(shot.y - player.y) < shot.radius + player.height * 0.55) {
+        player.lives -= 1;
+        hormoneCount = 0;
+        createParticles(player.x, player.y, '#ff5f6d', 20);
+        endGame('¡Has perdido las hormonas! La barrera te derrotó. Pulsa ESPACIO para volver a intentarlo');
+        updateHud();
+        return true;
+      }
+      return false;
+    }
+
+    function handleAsteroidCollision(asteroid) {
+      if (Math.abs(asteroid.x - player.x) < (asteroid.radius + player.width * 0.5) &&
+          Math.abs(asteroid.y - player.y) < (asteroid.radius + player.height * 0.55)) {
+        createParticles(player.x, player.y, '#ff5f6d', 28);
+        player.lives -= 1;
+        asteroids.splice(asteroids.indexOf(asteroid), 1);
+        if (state === 'boss') {
+          hormoneCount = 0;
+          endGame('¡Has perdido las hormonas! La barrera te derrotó. Pulsa ESPACIO para volver a intentarlo');
+          updateHud();
+          return true;
+        }
+        if (player.lives <= 0) {
+          endGame();
+        } else {
+          messageEl.textContent = `¡Impacto! Te quedan ${player.lives} vidas`;
+        }
+        updateHud();
+        return true;
+      }
+      return false;
+    }
+
+    function handleBonusCollision(item) {
+      const bonusHit = Math.abs(item.x - player.x) < (item.size + player.width * 0.5) &&
+        Math.abs(item.y - player.y) < (item.size + player.height * 0.55);
+
+      if (bonusHit) {
+        score += 25;
+        createParticles(player.x, player.y, '#7ef29a', 18);
+        if (score > bestScore) {
+          bestScore = score;
+          localStorage.setItem('cosmicDodgeBest', String(bestScore));
+        }
+        updateHud();
+        return true;
+      }
+      return false;
+    }
+
+    function handleHormoneCollision() {
+      if (!hormone || Math.abs(hormone.x - player.x) >= (hormone.size + player.width * 0.5) ||
+          Math.abs(hormone.y - player.y) >= (hormone.size + player.height * 0.55)) {
+        return false;
+      }
+
+      hormoneCount += 1;
+      hormone = null;
+      score += 50;
+      createParticles(player.x, player.y, '#ff78d1', 24);
+      messageEl.textContent = `¡Hormona asegurada! Llevas ${hormoneCount}/3`;
+      updateHud();
+      return true;
+    }
+
+    function updateGame(dt) {
+      if (state === 'boss') {
+        updateBoss(dt);
+        return;
+      }
+      if (state === 'final') {
+        updateFinal(dt);
+        return;
+      }
+      if (state !== 'playing') return;
+
+      movePlayer(dt);
+      shootCooldown = Math.max(0, shootCooldown - dt);
+
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        createAsteroid();
+        spawnTimer = Math.max(0.4, 1.15 - score / 400);
+      }
+
+      starTimer -= dt;
+      if (starTimer <= 0) {
+        createStarsBonus();
+        starTimer = 4 + Math.random() * 3;
+      }
+
+      for (let i = asteroids.length - 1; i >= 0; i--) {
+        const asteroid = asteroids[i];
+        asteroid.y += asteroid.speed * dt;
+        asteroid.rotation += asteroid.spin * dt;
+        asteroid.x += Math.sin((asteroid.y + asteroid.rotation) * 0.04) * asteroid.drift * 20 * dt;
+
+        if (handleAsteroidCollision(asteroid)) {
+          continue;
+        }
+
+        if (asteroid.y - asteroid.radius > canvas.height) {
+          score += 10;
+          asteroids.splice(i, 1);
+          updateHud();
+        }
+      }
+
+      for (let i = bonusItems.length - 1; i >= 0; i--) {
+        const item = bonusItems[i];
+        item.y += item.speed * dt;
+        item.pulse += dt * 7;
+        if (handleBonusCollision(item)) {
+          bonusItems.splice(i, 1);
+          continue;
+        }
+        if (item.y - item.size > canvas.height) {
+          bonusItems.splice(i, 1);
+        }
+      }
+
+      if (hormoneCount < 3 && !hormone && score >= 40 + hormoneCount * 35) {
+        createHormone();
+      }
+      if (hormone) {
+        hormone.y += hormone.speed * dt;
+        hormone.pulse += dt * 6;
+        handleHormoneCollision();
+        if (hormone && hormone.y - hormone.size > canvas.height) {
+          hormone = null;
+          messageEl.textContent = 'La hormona se perdió. Vuelve a empezar para intentarlo';
+          endGame();
+        }
+      }
+
+      if (hormoneCount >= 3 && score >= 100) {
+        startBossFight();
+        return;
+      }
+
+      updateLasers(dt);
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        localStorage.setItem('cosmicDodgeBest', String(bestScore));
+      }
+
+      updateHud();
+    }
+
+    function updateBoss(dt) {
+      movePlayer(dt);
+      shootCooldown = Math.max(0, shootCooldown - dt);
+      boss.pulse += dt * 5;
+      boss.x = canvas.width / 2 + Math.sin(boss.pulse * 0.45) * 250;
+      boss.attackTimer -= dt;
+      if (boss.attackTimer <= 0) {
+        createBossShot();
+        if (boss.health <= 50) createBossShot();
+        boss.attackTimer = boss.health <= 50 ? 0.38 : 0.8;
+      }
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        createAsteroid();
+        spawnTimer = 0.65;
+      }
+      for (let i = asteroids.length - 1; i >= 0; i--) {
+        const asteroid = asteroids[i];
+        asteroid.y += (asteroid.speed + 45) * dt;
+        asteroid.rotation += asteroid.spin * dt;
+        if (handleAsteroidCollision(asteroid)) continue;
+        if (asteroid.y - asteroid.radius > canvas.height) asteroids.splice(i, 1);
+      }
+      updateLasers(dt);
+      for (let i = bossShots.length - 1; i >= 0; i--) {
+        const shot = bossShots[i];
+        shot.y += shot.speed * dt;
+        if (handleBossShotCollision(shot) || shot.y - shot.radius > canvas.height) {
+          bossShots.splice(i, 1);
+        }
+      }
+      if (boss.health <= 0) defeatBoss();
+      updateHud();
+    }
+
+    function updateFinal(dt) {
+      movePlayer(dt);
+      shootCooldown = Math.max(0, shootCooldown - dt);
+      finalTimer += dt;
+      brain.pulse += dt * 4;
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        createAsteroid();
+        spawnTimer = 0.9;
+      }
+      for (let i = asteroids.length - 1; i >= 0; i--) {
+        const asteroid = asteroids[i];
+        asteroid.y += asteroid.speed * dt;
+        asteroid.rotation += asteroid.spin * dt;
+        if (handleAsteroidCollision(asteroid)) continue;
+        if (asteroid.y - asteroid.radius > canvas.height) asteroids.splice(i, 1);
+      }
+      updateLasers(dt);
+      if (Math.abs(player.x - brain.x) < 75 && Math.abs(player.y - brain.y) < 75) {
+        winGame();
+      } else if (finalTimer >= 3) {
+        messageEl.textContent = 'Acércate al cerebro con las flechas y entrega la hormona';
+      }
+      updateHud();
+    }
+
+    function updateLasers(dt) {
+      for (let i = lasers.length - 1; i >= 0; i--) {
+        const laser = lasers[i];
+        laser.y -= laser.speed * dt;
+        if (state === 'boss' && boss &&
+            Math.abs(laser.x - boss.x) < laser.width + 46 &&
+            Math.abs(laser.y - boss.y) < laser.height + 46) {
+          boss.health -= 10;
+          createParticles(laser.x, laser.y, '#6ee7ff', 8);
+          lasers.splice(i, 1);
+          continue;
+        }
+        if (laser.y + laser.height < 0) lasers.splice(i, 1);
+      }
+    }
+
+    function drawBackground() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, '#4b0d18');
+      gradient.addColorStop(0.5, '#8b2534');
+      gradient.addColorStop(1, '#3a0913');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = 'rgba(255, 173, 181, 0.2)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 18);
+      ctx.bezierCurveTo(180, 42, 310, -8, 470, 22);
+      ctx.bezierCurveTo(650, 52, 760, -5, canvas.width, 24);
+      ctx.moveTo(0, canvas.height - 20);
+      ctx.bezierCurveTo(180, canvas.height - 45, 310, canvas.height + 8, 470, canvas.height - 22);
+      ctx.bezierCurveTo(650, canvas.height - 50, 760, canvas.height + 4, canvas.width, canvas.height - 24);
+      ctx.stroke();
+
+      for (const star of bgStars) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(255,190,196,${star.alpha})`;
+        ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawPlayer() {
+      const x = player.x;
+      const y = player.y;
+      const { width, height } = player;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = '#ffd166';
+      ctx.shadowColor = '#ffd166';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(0, -height);
+      ctx.lineTo(width / 2, height * 0.6);
+      ctx.lineTo(0, height * 0.2);
+      ctx.lineTo(-width / 2, height * 0.6);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#fff1f2';
+      ctx.fillRect(-4, height * 0.2, 8, 12);
+      ctx.restore();
+
+      if (hormoneCount > 0) {
+        ctx.save();
+        ctx.translate(x, y - height - 8);
+        ctx.fillStyle = '#ff78d1';
+        ctx.shadowColor = '#ff78d1';
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(0, 0, 7 + Math.sin(performance.now() * 0.008) * 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawAsteroids() {
+      for (const asteroid of asteroids) {
+        ctx.save();
+        ctx.translate(asteroid.x, asteroid.y);
+        ctx.rotate(asteroid.rotation);
+        const radius = asteroid.radius;
+        ctx.fillStyle = '#d94c5c';
+        ctx.shadowColor = '#ff7c88';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, radius, radius * 0.72, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(102, 9, 24, 0.48)';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, radius * 0.48, radius * 0.27, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawLasers() {
+      for (const laser of lasers) {
+        ctx.save();
+        ctx.fillStyle = '#ffd166';
+        ctx.shadowColor = '#ffd166';
+        ctx.shadowBlur = 14;
+        ctx.fillRect(laser.x - laser.width / 2, laser.y, laser.width, laser.height);
+        ctx.restore();
+      }
+    }
+
+    function drawBossShots() {
+      for (const shot of bossShots) {
+        ctx.save();
+        ctx.fillStyle = '#ff8f9a';
+        ctx.shadowColor = '#ff8f9a';
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawBonus() {
+      for (const item of bonusItems) {
+        const pulse = 1 + Math.sin(item.pulse) * 0.2;
+        ctx.save();
+        ctx.translate(item.x, item.y);
+        ctx.scale(pulse, pulse);
+        ctx.fillStyle = '#7ef29a';
+        ctx.beginPath();
+        ctx.moveTo(0, -item.size);
+        ctx.lineTo(item.size * 0.4, 0);
+        ctx.lineTo(0, item.size);
+        ctx.lineTo(-item.size * 0.4, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawHormone() {
+      if (!hormone) return;
+      const pulse = 1 + Math.sin(hormone.pulse) * 0.15;
+      ctx.save();
+      ctx.translate(hormone.x, hormone.y);
+      ctx.scale(pulse, pulse);
+      ctx.fillStyle = '#ff78d1';
+      ctx.shadowColor = '#ff78d1';
+      ctx.shadowBlur = 16;
+      ctx.beginPath();
+      ctx.moveTo(-hormone.size * 0.7, -hormone.size * 0.6);
+      ctx.bezierCurveTo(-hormone.size * 1.4, hormone.size * 0.1, 0, hormone.size * 1.2, 0, hormone.size * 1.2);
+      ctx.bezierCurveTo(0, hormone.size * 1.2, hormone.size * 1.4, hormone.size * 0.1, hormone.size * 0.7, -hormone.size * 0.6);
+      ctx.bezierCurveTo(hormone.size * 0.35, -hormone.size * 1.2, -hormone.size * 0.35, -hormone.size * 1.2, -hormone.size * 0.7, -hormone.size * 0.6);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawBoss() {
+      if (!boss) return;
+      ctx.save();
+      ctx.translate(boss.x, boss.y);
+      const weakened = boss.health <= 50;
+      const barrierScale = weakened ? 0.78 : 1;
+      const barrierWidth = 190 * barrierScale;
+      const barrierHeight = (30 + Math.sin(boss.pulse) * 3) * barrierScale;
+      ctx.shadowColor = '#ff5264';
+      ctx.shadowBlur = 24;
+      ctx.fillStyle = '#b9233c';
+      ctx.beginPath();
+      ctx.roundRect(-barrierWidth, -barrierHeight / 2, barrierWidth * 2, barrierHeight, 15);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#ffb2b9';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath();
+      ctx.arc(0, 0, 13 + Math.sin(boss.pulse * 1.5) * 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#6f1024';
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 209, 102, 0.65)';
+      ctx.lineWidth = 2;
+      for (let x = -150; x <= 150; x += 50) {
+        ctx.beginPath();
+        ctx.moveTo(x, -barrierHeight / 2);
+        ctx.lineTo(x + 16, barrierHeight / 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect(canvas.width / 2 - 150, 24, 300, 10);
+      ctx.fillStyle = '#ffd166';
+      ctx.fillRect(canvas.width / 2 - 150, 24, 300 * Math.max(0, boss.health) / 100, 10);
+    }
+
+    function drawBrain() {
+      if (!brain) return;
+      ctx.save();
+      ctx.translate(brain.x, brain.y);
+      ctx.scale(1 + Math.sin(brain.pulse) * 0.05, 1 + Math.sin(brain.pulse) * 0.05);
+      ctx.fillStyle = '#ff9bd9';
+      ctx.shadowColor = '#ff78d1';
+      ctx.shadowBlur = 24;
+      ctx.beginPath();
+      ctx.arc(-18, 0, 24, 0, Math.PI * 2);
+      ctx.arc(18, 0, 24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#9b3f8e';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, -20);
+      ctx.lineTo(0, 20);
+      ctx.moveTo(-28, -4);
+      ctx.quadraticCurveTo(-16, -18, -7, -4);
+      ctx.moveTo(28, -4);
+      ctx.quadraticCurveTo(16, -18, 7, -4);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        ctx.beginPath();
+        ctx.fillStyle = hexToRgba(p.color, Math.max(0.2, p.life));
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function draw() {
+      drawBackground();
+      drawBonus();
+      drawHormone();
+      drawAsteroids();
+      drawLasers();
+      drawBossShots();
+      drawBoss();
+      drawBrain();
+      drawPlayer();
+      drawParticles();
+
+      if (state === 'ready') {
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      if (state === 'gameover') {
+        ctx.fillStyle = 'rgba(35, 3, 10, 0.78)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fff1f2';
+        ctx.font = '700 42px Arial';
+        ctx.fillText('HAS PERDIDO', canvas.width / 2, canvas.height / 2 - 12);
+        ctx.font = '700 17px Arial';
+        ctx.fillStyle = '#ffb2b9';
+        ctx.fillText('Pulsa ESPACIO para intentarlo de nuevo', canvas.width / 2, canvas.height / 2 + 28);
+      }
+      if (state === 'won') {
+        drawVictoryScreen();
+      }
+    }
+
+    function drawVictoryScreen() {
+      ctx.fillStyle = 'rgba(27, 4, 12, 0.72)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2 - 28;
+      ctx.save();
+      ctx.translate(centerX, centerY);
+
+      ctx.fillStyle = 'rgba(255, 209, 102, 0.16)';
+      ctx.shadowColor = '#ffd166';
+      ctx.shadowBlur = 28;
+      ctx.beginPath();
+      ctx.arc(0, 0, 82, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.shadowBlur = 16;
+      ctx.fillStyle = '#ff5264';
+      ctx.beginPath();
+      ctx.moveTo(0, 48);
+      ctx.bezierCurveTo(-75, 0, -54, -48, -22, -43);
+      ctx.bezierCurveTo(-8, -41, 0, -28, 0, -19);
+      ctx.bezierCurveTo(0, -28, 8, -41, 22, -43);
+      ctx.bezierCurveTo(54, -48, 75, 0, 0, 48);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      ctx.strokeStyle = '#ffbdc4';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(-25, -6);
+      ctx.lineTo(-10, -6);
+      ctx.lineTo(0, 14);
+      ctx.lineTo(16, -20);
+      ctx.lineTo(29, -20);
+      ctx.stroke();
+      ctx.restore();
+
+      const confetti = [
+        [-250, -125, '#ffd166'], [-190, 98, '#ff8f9a'], [210, -110, '#7ef29a'],
+        [265, 90, '#6ee7ff'], [-315, 10, '#ffbdc4'], [320, -12, '#ffd166']
+      ];
+      for (const [x, y, color] of confetti) {
+        ctx.fillStyle = color;
+        ctx.save();
+        ctx.translate(centerX + x, centerY + y);
+        ctx.rotate((x + y) * 0.01);
+        ctx.fillRect(-5, -12, 10, 24);
+        ctx.restore();
+      }
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fff1f2';
+      ctx.font = '700 42px Arial';
+      ctx.fillText('¡HAS GANADO!', centerX, canvas.height / 2 + 92);
+      ctx.font = '700 17px Arial';
+      ctx.fillStyle = '#ffd166';
+      ctx.fillText('La hormona llegó al cerebro', centerX, canvas.height / 2 + 124);
+      ctx.fillStyle = '#ffb2b9';
+      ctx.fillText('Pulsa ESPACIO para jugar otra vez', centerX, canvas.height / 2 + 157);
+    }
+
+    function loop(timestamp) {
+      const dt = Math.min((timestamp - lastTime) / 1000 || 0.016, 0.032);
+      lastTime = timestamp;
+
+      updateBackground(dt);
+      updateGame(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'ArrowLeft' || event.code === 'KeyA') keys.left = true;
+      if (event.code === 'ArrowRight' || event.code === 'KeyD') keys.right = true;
+      if (event.code === 'ArrowUp' || event.code === 'KeyW') keys.up = true;
+      if (event.code === 'ArrowDown' || event.code === 'KeyS') keys.down = true;
+      if (event.code === 'Space') {
+        event.preventDefault();
+        if (state === 'ready' || state === 'gameover' || state === 'won') {
+          startGame();
+        } else {
+          fireLaser();
+        }
+      }
+    });
+
+    document.addEventListener('keyup', (event) => {
+      if (event.code === 'ArrowLeft' || event.code === 'KeyA') keys.left = false;
+      if (event.code === 'ArrowRight' || event.code === 'KeyD') keys.right = false;
+      if (event.code === 'ArrowUp' || event.code === 'KeyW') keys.up = false;
+      if (event.code === 'ArrowDown' || event.code === 'KeyS') keys.down = false;
+    });
+
+    resetPlayer();
+    setupStars();
+    updateHud();
+    messageEl.textContent = 'Pulsa ESPACIO para empezar';
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
