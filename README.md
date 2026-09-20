@@ -1,7 +1,6 @@
 # juego-h.a
 juego h.a
- 120, 0.6);
-<!DOCTYPE html>
+!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
@@ -146,7 +145,7 @@ juego h.a
       font-weight: 700;
     }
 
-    @media (max-width: 640px) {
+    @media (max-width: 640px), (pointer: coarse) {
       body {
         min-height: 100svh;
         padding: 8px;
@@ -1038,6 +1037,16 @@ juego h.a
       if (event.code === 'ArrowDown' || event.code === 'KeyS') keys.down = false;
     });
 
+    canvas.addEventListener('pointerdown', (event) => {
+      if (!window.matchMedia('(pointer: coarse)').matches && !('ontouchstart' in window)) return;
+      event.preventDefault();
+      if (state === 'ready' || state === 'gameover' || state === 'won') {
+        handleStartOrFire();
+        return;
+      }
+      fireLaser();
+    });
+
     document.querySelectorAll('.control-button').forEach((button) => {
       const key = button.dataset.key;
       const action = button.dataset.action;
@@ -1066,4 +1075,6 @@ juego h.a
   </script>
 </body>
 </html>
+
+  
 
