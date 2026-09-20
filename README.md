@@ -1,5 +1,6 @@
 # juego-h.a
 juego h.a
+ 120, 0.6);
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -25,6 +26,7 @@ juego h.a
       min-height: 100vh;
       display: grid;
       place-items: center;
+      padding: 12px;
       background:
         radial-gradient(circle at top, rgba(255, 126, 143, 0.28), transparent 32%),
         linear-gradient(160deg, var(--bg1), var(--bg2));
@@ -84,10 +86,53 @@ juego h.a
 
     canvas {
       width: 100%;
+      height: auto;
+      aspect-ratio: 900 / 520;
       display: block;
       border-radius: 16px;
       background: linear-gradient(180deg, #5f1522 0%, #8c2332 48%, #4a0c18 100%);
       border: 1px solid rgba(255,255,255,0.12);
+      touch-action: none;
+    }
+
+    .mobile-controls {
+      display: none;
+      grid-template-columns: repeat(3, minmax(52px, 68px));
+      grid-template-rows: repeat(2, 52px);
+      justify-content: center;
+      gap: 8px;
+      margin: 12px auto 2px;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .control-button {
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.1);
+      color: var(--text);
+      font: 700 1.35rem Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: none;
+    }
+
+    .control-button:active,
+    .control-button.active {
+      background: rgba(255, 143, 154, 0.45);
+      transform: scale(0.96);
+    }
+
+    .control-up { grid-column: 2; grid-row: 1; }
+    .control-left { grid-column: 1; grid-row: 2; }
+    .control-down { grid-column: 2; grid-row: 2; }
+    .control-right { grid-column: 3; grid-row: 2; }
+    .control-fire {
+      grid-column: 4;
+      grid-row: 1 / span 2;
+      margin-left: 8px;
+      border-color: rgba(255, 209, 102, 0.5);
+      color: var(--success);
+      font-size: 0.82rem;
     }
 
     .message {
@@ -102,10 +147,58 @@ juego h.a
     }
 
     @media (max-width: 640px) {
-      .game-shell { padding: 12px 12px 10px; }
-      .topbar { justify-content: center; }
-      .hud { justify-content: center; }
-      .message { font-size: 0.7rem; }
+      body {
+        min-height: 100svh;
+        padding: 8px;
+      }
+
+      .game-shell {
+        width: 100%;
+        padding: 10px 10px 8px;
+        border-radius: 14px;
+      }
+
+      .topbar {
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      h1 {
+        width: 100%;
+        text-align: center;
+        font-size: clamp(1.15rem, 7vw, 1.65rem);
+        letter-spacing: 1px;
+      }
+
+      .hud {
+        justify-content: center;
+        gap: 5px;
+        font-size: 0.72rem;
+      }
+
+      .pill {
+        padding: 6px 8px;
+      }
+
+      .mobile-controls {
+        display: grid;
+      }
+
+      .message {
+        min-height: 24px;
+        margin-top: 8px;
+        font-size: 0.62rem;
+        letter-spacing: 0.04em;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .hud { font-size: 0.65rem; }
+      .pill { padding: 5px 6px; }
+      .mobile-controls { grid-template-columns: repeat(3, 52px); }
+      .control-fire { margin-left: 2px; }
     }
   </style>
 </head>
@@ -123,7 +216,14 @@ juego h.a
     </div>
 
     <canvas id="gameCanvas" width="900" height="520" aria-label="Juego de esquivar glóbulos rojos"></canvas>
-    <div id="message" class="message">Pulsa ESPACIO para empezar</div>
+    <div class="mobile-controls" aria-label="Controles táctiles">
+      <button class="control-button control-up" type="button" data-key="up" aria-label="Mover arriba">▲</button>
+      <button class="control-button control-left" type="button" data-key="left" aria-label="Mover a la izquierda">◀</button>
+      <button class="control-button control-down" type="button" data-key="down" aria-label="Mover abajo">▼</button>
+      <button class="control-button control-right" type="button" data-key="right" aria-label="Mover a la derecha">▶</button>
+      <button class="control-button control-fire" type="button" data-action="fire" aria-label="Empezar o disparar">JUGAR<br />/ DISPARAR</button>
+    </div>
+    <div id="message" class="message">Pulsa ESPACIO o JUGAR para empezar</div>
   </div>
 
   <script>
@@ -285,7 +385,7 @@ juego h.a
       updateHud();
     }
 
-    function endGame(reason = 'Juego terminado. Pulsa ESPACIO para repetir') {
+    function endGame(reason = 'Juego terminado. Pulsa ESPACIO o JUGAR para repetir') {
       state = 'gameover';
       bestScore = Math.max(bestScore, score);
       localStorage.setItem('cosmicDodgeBest', String(bestScore));
@@ -300,7 +400,7 @@ juego h.a
       lasers.length = 0;
       bossShots.length = 0;
       boss = { x: canvas.width / 2, y: 88, health: 100, pulse: 0, attackTimer: 1 };
-      messageEl.textContent = '¡Barrera vascular! Pulsa ESPACIO para abrir una brecha';
+      messageEl.textContent = '¡Barrera vascular! Pulsa ESPACIO o DISPARAR para abrir una brecha';
       updateHud();
     }
 
@@ -323,7 +423,7 @@ juego h.a
       bestScore = Math.max(bestScore, score);
       localStorage.setItem('cosmicDodgeBest', String(bestScore));
       createParticles(player.x, player.y, '#7ef29a', 42);
-      messageEl.textContent = '¡Victoria! La hormona llegó al cerebro. Pulsa ESPACIO para jugar otra vez';
+      messageEl.textContent = '¡Victoria! La hormona llegó al cerebro. Pulsa ESPACIO o JUGAR para jugar otra vez';
       updateHud();
     }
 
@@ -342,6 +442,14 @@ juego h.a
       shootCooldown = 0.22;
     }
 
+    function handleStartOrFire() {
+      if (state === 'ready' || state === 'gameover' || state === 'won') {
+        startGame();
+      } else {
+        fireLaser();
+      }
+    }
+
     function createBossShot() {
       bossShots.push({
         x: boss.x + (Math.random() - 0.5) * 46,
@@ -357,7 +465,7 @@ juego h.a
         player.lives -= 1;
         hormoneCount = 0;
         createParticles(player.x, player.y, '#ff5f6d', 20);
-        endGame('¡Has perdido las hormonas! La barrera te derrotó. Pulsa ESPACIO para volver a intentarlo');
+        endGame('¡Has perdido las hormonas! La barrera te derrotó. Pulsa ESPACIO o JUGAR para volver a intentarlo');
         updateHud();
         return true;
       }
@@ -372,7 +480,7 @@ juego h.a
         asteroids.splice(asteroids.indexOf(asteroid), 1);
         if (state === 'boss') {
           hormoneCount = 0;
-          endGame('¡Has perdido las hormonas! La barrera te derrotó. Pulsa ESPACIO para volver a intentarlo');
+          endGame('¡Has perdido las hormonas! La barrera te derrotó. Pulsa ESPACIO o JUGAR para volver a intentarlo');
           updateHud();
           return true;
         }
@@ -833,7 +941,7 @@ juego h.a
         ctx.fillText('HAS PERDIDO', canvas.width / 2, canvas.height / 2 - 12);
         ctx.font = '700 17px Arial';
         ctx.fillStyle = '#ffb2b9';
-        ctx.fillText('Pulsa ESPACIO para intentarlo de nuevo', canvas.width / 2, canvas.height / 2 + 28);
+        ctx.fillText('Pulsa ESPACIO o JUGAR para intentarlo de nuevo', canvas.width / 2, canvas.height / 2 + 28);
       }
       if (state === 'won') {
         drawVictoryScreen();
@@ -899,7 +1007,7 @@ juego h.a
       ctx.fillStyle = '#ffd166';
       ctx.fillText('La hormona llegó al cerebro', centerX, canvas.height / 2 + 124);
       ctx.fillStyle = '#ffb2b9';
-      ctx.fillText('Pulsa ESPACIO para jugar otra vez', centerX, canvas.height / 2 + 157);
+      ctx.fillText('Pulsa ESPACIO o JUGAR para jugar otra vez', centerX, canvas.height / 2 + 157);
     }
 
     function loop(timestamp) {
@@ -919,11 +1027,7 @@ juego h.a
       if (event.code === 'ArrowDown' || event.code === 'KeyS') keys.down = true;
       if (event.code === 'Space') {
         event.preventDefault();
-        if (state === 'ready' || state === 'gameover' || state === 'won') {
-          startGame();
-        } else {
-          fireLaser();
-        }
+        handleStartOrFire();
       }
     });
 
@@ -934,11 +1038,32 @@ juego h.a
       if (event.code === 'ArrowDown' || event.code === 'KeyS') keys.down = false;
     });
 
+    document.querySelectorAll('.control-button').forEach((button) => {
+      const key = button.dataset.key;
+      const action = button.dataset.action;
+
+      const release = () => {
+        if (key) keys[key] = false;
+        button.classList.remove('active');
+      };
+
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        button.classList.add('active');
+        if (key) keys[key] = true;
+        if (action === 'fire') handleStartOrFire();
+      });
+      button.addEventListener('pointerup', release);
+      button.addEventListener('pointercancel', release);
+      button.addEventListener('pointerleave', release);
+    });
+
     resetPlayer();
     setupStars();
     updateHud();
-    messageEl.textContent = 'Pulsa ESPACIO para empezar';
+    messageEl.textContent = 'Pulsa ESPACIO o JUGAR para empezar';
     requestAnimationFrame(loop);
   </script>
 </body>
 </html>
+
