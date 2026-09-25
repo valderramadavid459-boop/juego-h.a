@@ -1,6 +1,5 @@
 # juego-h.a
 juego h.a
-!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
@@ -9,7 +8,7 @@ juego h.a
   <style>
     :root {
       --bg1: #26070d;
-      --bg2: #5b101b;
+      --bg2:<!DOCTYPE html> #5b101b;
       --panel: rgba(47, 8, 18, 0.82);
       --text: #fff1f2;
       --accent: #ff8f9a;
@@ -209,7 +208,7 @@ juego h.a
         <div class="pill">Puntuación: <span id="score">0</span></div>
         <div class="pill">Mejor: <span id="best">0</span></div>
         <div class="pill">Vidas: <span id="lives">3</span></div>
-        <div class="pill">Hormonas: <span id="hormoneStatus" class="status-danger">0/3</span></div>
+        <div class="pill">Eres: <span id="hormoneStatus" class="status-danger">Insulina</span></div>
         <div class="pill">Barrera: <span id="bossStatus">---</span></div>
       </div>
     </div>
@@ -257,6 +256,11 @@ juego h.a
     let brain = null;
     let finalTimer = 0;
     let shootCooldown = 0;
+    let currentLevel = 1;
+    let sugarBar = 100;
+    let levelTransition = false;
+    let transitionHormone = { x: 0, y: 0, pulse: 0 };
+    let glucoseDestroyed = 0;
 
     function resetPlayer() {
       player = {
@@ -298,9 +302,32 @@ juego h.a
       scoreEl.textContent = score;
       bestEl.textContent = bestScore;
       livesEl.textContent = player ? player.lives : 0;
-      hormoneStatusEl.textContent = hormoneDelivered ? 'Entregadas' : `${hormoneCount}/3`;
-      hormoneStatusEl.className = hormoneCount >= 3 ? 'status-good' : 'status-danger';
-      bossStatusEl.textContent = boss ? `${Math.ceil(boss.health)}%` : state === 'final' || state === 'won' ? 'Derrotado' : '---';
+
+      if (currentLevel === 1) {
+        hormoneStatusEl.textContent = 'Insulina';
+        hormoneStatusEl.className = 'status-good';
+      } else if (currentLevel === 2) {
+        hormoneStatusEl.textContent = `Glucosa: ${glucoseDestroyed}/20`;
+        hormoneStatusEl.className = glucoseDestroyed >= 20 ? 'status-good' : 'status-danger';
+      } else if (state === 'final' || state === 'won') {
+        hormoneStatusEl.textContent = 'Cerebro';
+        hormoneStatusEl.className = 'status-good';
+      } else {
+        hormoneStatusEl.textContent = '--';
+        hormoneStatusEl.className = 'status-danger';
+      }
+
+      if (boss) {
+        bossStatusEl.textContent = `Azúcar ${Math.ceil(boss.health)}%`;
+      } else if (state === 'final' || state === 'won') {
+        bossStatusEl.textContent = `Azúcar ${Math.ceil(sugarBar)}%`;
+      } else if (currentLevel === 1) {
+        bossStatusEl.textContent = 'Páncreas';
+      } else if (currentLevel === 2) {
+        bossStatusEl.textContent = 'Glucosa';
+      } else {
+        bossStatusEl.textContent = '---';
+      }
     }
 
     function updateBackground(dt) {
@@ -315,6 +342,8 @@ juego h.a
 
     function createAsteroid() {
       const size = Math.random() * 22 + 18;
+      const glucoseLevel = currentLevel === 2;
+      const hormoneLevel = currentLevel === 1;
       asteroids.push({
         x: Math.random() * (canvas.width - size * 2) + size,
         y: -size,
@@ -322,7 +351,9 @@ juego h.a
         speed: Math.random() * 170 + 120 + score * 0.3,
         spin: (Math.random() - 0.5) * 2.6,
         rotation: Math.random() * Math.PI * 2,
-        drift: (Math.random() - 0.5) * 2.4
+        drift: (Math.random() - 0.5) * 2.4,
+        kind: glucoseLevel ? 'glucose' : hormoneLevel ? 'hormone-race' : 'rival-hormone',
+          color: glucoseLevel ? '#f5f7ff' : hormoneLevel ? '#ff78d1' : '#d94c5c'
       });
     }
 
@@ -337,14 +368,48 @@ juego h.a
       });
     }
 
-    function createHormone() {
-      hormone = {
-        x: Math.random() * (canvas.width - 80) + 40,
-        y: -24,
-        size: 16,
-        speed: 120,
-        pulse: 0
-      };
+    function startLevel(levelIndex) {
+      asteroids.length = 0;
+      bonusItems.length = 0;
+      particles.length = 0;
+      lasers.length = 0;
+      bossShots.length = 0;
+      hormone = null;
+      currentLevel = levelIndex;
+      levelTransition = false;
+      transitionHormone.x = canvas.width / 2;
+      transitionHormone.y = canvas.height - 52;
+      transitionHormone.pulse = 0;
+      sugarBar = Math.max(50, sugarBar);
+
+      if (levelIndex === 1) {
+        state = 'playing';
+        spawnTimer = 0.8;
+        starTimer = 2.2;
+        messageEl.textContent = 'Nivel 1: Páncreas — la insulina corre hacia arriba y compite con otras hormonas';
+      } else if (levelIndex === 2) {
+        state = 'playing';
+        player.y = canvas.height - 46;
+        spawnTimer = 0.7;
+        starTimer = 2.8;
+        hormoneCount = 0;
+        glucoseDestroyed = 0;
+        messageEl.textContent = 'Nivel 2: Glucosa — dispara misiles para destruir los obstáculos de azúcar';
+      } else if (levelIndex === 3) {
+        startBossFight();
+        return;
+      }
+
+      updateHud();
+    }
+
+    function advanceLevel() {
+      if (state !== 'transition') return;
+      if (currentLevel === 1) {
+        startLevel(2);
+      } else if (currentLevel === 2) {
+        startBossFight();
+      }
     }
 
     function createParticles(x, y, color, amount) {
@@ -375,13 +440,16 @@ juego h.a
       brain = null;
       finalTimer = 0;
       shootCooldown = 0;
+      currentLevel = 1;
+      sugarBar = 100;
+      glucoseDestroyed = 0;
+      transitionHormone.x = canvas.width / 2;
+      transitionHormone.y = canvas.height - 52;
+      transitionHormone.pulse = 0;
       score = 0;
       scoreEl.textContent = score;
       state = 'playing';
-      spawnTimer = 0.7;
-      starTimer = 1.8;
-      messageEl.textContent = '¡Sobrevive!';
-      updateHud();
+      startLevel(1);
     }
 
     function endGame(reason = 'Juego terminado. Pulsa ESPACIO o JUGAR para repetir') {
@@ -394,24 +462,28 @@ juego h.a
 
     function startBossFight() {
       state = 'boss';
+      currentLevel = 3;
       asteroids.length = 0;
       bonusItems.length = 0;
       lasers.length = 0;
       bossShots.length = 0;
-      boss = { x: canvas.width / 2, y: 88, health: 100, pulse: 0, attackTimer: 1 };
-      messageEl.textContent = '¡Barrera vascular! Pulsa ESPACIO o DISPARAR para abrir una brecha';
+      sugarBar = Math.max(100, sugarBar);
+      boss = { x: canvas.width / 2, y: 88, health: sugarBar, pulse: 0, attackTimer: 1 };
+      messageEl.textContent = 'Nivel 3: Barrera del azúcar — evita la descarga y rompe la defensa';
       updateHud();
     }
 
     function defeatBoss() {
       state = 'final';
+      currentLevel = 3;
       asteroids.length = 0;
       lasers.length = 0;
       bossShots.length = 0;
+      sugarBar = Math.max(25, boss ? boss.health : sugarBar);
       boss = null;
       brain = { x: canvas.width / 2, y: 92, pulse: 0 };
       finalTimer = 0;
-      messageEl.textContent = '¡Barrera rota! Lleva la hormona al cerebro';
+      messageEl.textContent = '¡Barrera rota! Lleva la insulina al cerebro antes de que se agote el azúcar';
       updateHud();
     }
 
@@ -422,7 +494,7 @@ juego h.a
       bestScore = Math.max(bestScore, score);
       localStorage.setItem('cosmicDodgeBest', String(bestScore));
       createParticles(player.x, player.y, '#7ef29a', 42);
-      messageEl.textContent = '¡Victoria! La hormona llegó al cerebro. Pulsa ESPACIO o JUGAR para jugar otra vez';
+      messageEl.textContent = '¡Victoria! La insulina llegó al cerebro. Pulsa ESPACIO o JUGAR para jugar otra vez';
       updateHud();
     }
 
@@ -442,6 +514,10 @@ juego h.a
     }
 
     function handleStartOrFire() {
+      if (state === 'transition') {
+        advanceLevel();
+        return;
+      }
       if (state === 'ready' || state === 'gameover' || state === 'won') {
         startGame();
       } else {
@@ -461,10 +537,12 @@ juego h.a
     function handleBossShotCollision(shot) {
       if (Math.abs(shot.x - player.x) < shot.radius + player.width * 0.5 &&
           Math.abs(shot.y - player.y) < shot.radius + player.height * 0.55) {
-        player.lives -= 1;
-        hormoneCount = 0;
-        createParticles(player.x, player.y, '#ff5f6d', 20);
-        endGame('¡Has perdido las hormonas! La barrera te derrotó. Pulsa ESPACIO o JUGAR para volver a intentarlo');
+        sugarBar = Math.max(0, sugarBar - 12);
+        if (boss) boss.health = sugarBar;
+        createParticles(player.x, player.y, '#ffd166', 20);
+        if (sugarBar <= 0) {
+          endGame('La barra de azúcar se agotó. Pulsa ESPACIO o JUGAR para repetir');
+        }
         updateHud();
         return true;
       }
@@ -479,7 +557,7 @@ juego h.a
         asteroids.splice(asteroids.indexOf(asteroid), 1);
         if (state === 'boss') {
           hormoneCount = 0;
-          endGame('¡Has perdido las hormonas! La barrera te derrotó. Pulsa ESPACIO o JUGAR para volver a intentarlo');
+          endGame('¡La defensa del azúcar te atrapó! Pulsa ESPACIO o JUGAR para volver a intentarlo');
           updateHud();
           return true;
         }
@@ -512,18 +590,7 @@ juego h.a
     }
 
     function handleHormoneCollision() {
-      if (!hormone || Math.abs(hormone.x - player.x) >= (hormone.size + player.width * 0.5) ||
-          Math.abs(hormone.y - player.y) >= (hormone.size + player.height * 0.55)) {
-        return false;
-      }
-
-      hormoneCount += 1;
-      hormone = null;
-      score += 50;
-      createParticles(player.x, player.y, '#ff78d1', 24);
-      messageEl.textContent = `¡Hormona asegurada! Llevas ${hormoneCount}/3`;
-      updateHud();
-      return true;
+      return false;
     }
 
     function updateGame(dt) {
@@ -543,18 +610,22 @@ juego h.a
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
         createAsteroid();
-        spawnTimer = Math.max(0.4, 1.15 - score / 400);
+        spawnTimer = currentLevel === 2 ? 0.55 : Math.max(0.4, 1.15 - score / 400);
       }
 
       starTimer -= dt;
       if (starTimer <= 0) {
         createStarsBonus();
-        starTimer = 4 + Math.random() * 3;
+        starTimer = currentLevel === 2 ? 3.2 + Math.random() * 2 : 4 + Math.random() * 3;
       }
 
       for (let i = asteroids.length - 1; i >= 0; i--) {
         const asteroid = asteroids[i];
-        asteroid.y += asteroid.speed * dt;
+        if (currentLevel === 1) {
+          asteroid.y -= asteroid.speed * dt;
+        } else {
+          asteroid.y += asteroid.speed * dt;
+        }
         asteroid.rotation += asteroid.spin * dt;
         asteroid.x += Math.sin((asteroid.y + asteroid.rotation) * 0.04) * asteroid.drift * 20 * dt;
 
@@ -562,7 +633,11 @@ juego h.a
           continue;
         }
 
-        if (asteroid.y - asteroid.radius > canvas.height) {
+        if (currentLevel === 1) {
+          if (asteroid.y + asteroid.radius < 0) {
+            asteroids.splice(i, 1);
+          }
+        } else if (asteroid.y - asteroid.radius > canvas.height) {
           score += 10;
           asteroids.splice(i, 1);
           updateHud();
@@ -582,22 +657,17 @@ juego h.a
         }
       }
 
-      if (hormoneCount < 3 && !hormone && score >= 40 + hormoneCount * 35) {
-        createHormone();
-      }
-      if (hormone) {
-        hormone.y += hormone.speed * dt;
-        hormone.pulse += dt * 6;
-        handleHormoneCollision();
-        if (hormone && hormone.y - hormone.size > canvas.height) {
-          hormone = null;
-          messageEl.textContent = 'La hormona se perdió. Vuelve a empezar para intentarlo';
-          endGame();
-        }
+      if (currentLevel === 1 && player.y <= 92) {
+        state = 'transition';
+        levelTransition = true;
+        messageEl.textContent = 'Nivel 1 completado. Pulsa la insulina para pasar al siguiente nivel';
+        return;
       }
 
-      if (hormoneCount >= 3 && score >= 100) {
-        startBossFight();
+      if (currentLevel === 2 && glucoseDestroyed >= 20) {
+        state = 'transition';
+        levelTransition = true;
+        messageEl.textContent = 'Nivel 2 completado. Pulsa la insulina para entrar al jefe final';
         return;
       }
 
@@ -630,6 +700,7 @@ juego h.a
         if (boss.health <= 50) createBossShot();
         boss.attackTimer = boss.health <= 50 ? 0.38 : 0.8;
       }
+      sugarBar = boss.health;
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
         createAsteroid();
@@ -650,7 +721,7 @@ juego h.a
           bossShots.splice(i, 1);
         }
       }
-      if (boss.health <= 0) defeatBoss();
+      if (boss && boss.health <= 0) defeatBoss();
       updateHud();
     }
 
@@ -658,6 +729,11 @@ juego h.a
       movePlayer(dt);
       shootCooldown = Math.max(0, shootCooldown - dt);
       finalTimer += dt;
+      sugarBar = Math.max(0, sugarBar - dt * 9);
+      if (sugarBar <= 0) {
+        endGame('La barra de azúcar se agotó antes de llegar al cerebro. Pulsa ESPACIO o JUGAR para repetir');
+        return;
+      }
       brain.pulse += dt * 4;
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
@@ -675,7 +751,7 @@ juego h.a
       if (Math.abs(player.x - brain.x) < 75 && Math.abs(player.y - brain.y) < 75) {
         winGame();
       } else if (finalTimer >= 3) {
-        messageEl.textContent = 'Acércate al cerebro con las flechas y entrega la hormona';
+        messageEl.textContent = 'Acércate al cerebro con las flechas y entrega la insulina';
       }
       updateHud();
     }
@@ -684,10 +760,34 @@ juego h.a
       for (let i = lasers.length - 1; i >= 0; i--) {
         const laser = lasers[i];
         laser.y -= laser.speed * dt;
+
+        if (state === 'playing' && currentLevel === 2) {
+          for (let j = asteroids.length - 1; j >= 0; j--) {
+            const asteroid = asteroids[j];
+            if (asteroid.kind !== 'glucose') continue;
+            const hitX = Math.abs(laser.x - asteroid.x) < asteroid.radius + laser.width;
+            const hitY = Math.abs(laser.y - asteroid.y) < asteroid.radius + laser.height;
+            if (hitX && hitY) {
+              asteroids.splice(j, 1);
+              lasers.splice(i, 1);
+              glucoseDestroyed += 1;
+              score += 20;
+              createParticles(asteroid.x, asteroid.y, '#f5f7ff', 16);
+              updateHud();
+              break;
+            }
+          }
+          if (laser.y + laser.height < 0) {
+            lasers.splice(i, 1);
+          }
+          continue;
+        }
+
         if (state === 'boss' && boss &&
             Math.abs(laser.x - boss.x) < laser.width + 46 &&
             Math.abs(laser.y - boss.y) < laser.height + 46) {
           boss.health -= 10;
+          sugarBar = boss.health;
           createParticles(laser.x, laser.y, '#6ee7ff', 8);
           lasers.splice(i, 1);
           continue;
@@ -698,10 +798,25 @@ juego h.a
 
     function drawBackground() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let topColor = '#4b0d18';
+      let middleColor = '#8b2534';
+      let bottomColor = '#3a0913';
+
+      if (currentLevel === 1) {
+        topColor = '#40383b';
+        middleColor = '#8a6266';
+        bottomColor = '#332d30';
+      } else if (currentLevel === 2) {
+        topColor = '#4a0c17';
+        middleColor = '#8f2235';
+        bottomColor = '#24070d';
+      }
+
       const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      gradient.addColorStop(0, '#4b0d18');
-      gradient.addColorStop(0.5, '#8b2534');
-      gradient.addColorStop(1, '#3a0913');
+      gradient.addColorStop(0, topColor);
+      gradient.addColorStop(0.5, middleColor);
+      gradient.addColorStop(1, bottomColor);
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -744,6 +859,10 @@ juego h.a
 
       ctx.fillStyle = '#fff1f2';
       ctx.fillRect(-4, height * 0.2, 8, 12);
+      ctx.fillStyle = '#fff1f2';
+      ctx.font = '700 11px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('HORMONA DE INSULINA', 0, height + 24);
       ctx.restore();
 
       if (hormoneCount > 0) {
@@ -759,23 +878,89 @@ juego h.a
       }
     }
 
+    function drawTransitionHormone() {
+      if (state !== 'transition') return;
+      transitionHormone.pulse += 0.08;
+      transitionHormone.x = canvas.width / 2 + Math.sin(transitionHormone.pulse) * 48;
+      transitionHormone.y = canvas.height - 52 + Math.sin(transitionHormone.pulse * 1.6) * 10;
+
+      ctx.save();
+      ctx.translate(transitionHormone.x, transitionHormone.y);
+      ctx.fillStyle = '#ff78d1';
+      ctx.shadowColor = '#ff78d1';
+      ctx.shadowBlur = 18;
+      ctx.beginPath();
+      ctx.moveTo(-94, 0);
+      ctx.bezierCurveTo(-94, -24, -42, -28, 0, -28);
+      ctx.bezierCurveTo(42, -28, 94, -24, 94, 0);
+      ctx.bezierCurveTo(94, 24, 42, 28, 0, 28);
+      ctx.bezierCurveTo(-42, 28, -94, 24, -94, 0);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff1f2';
+      ctx.font = '700 15px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('INSULINA', 0, 48);
+      ctx.restore();
+    }
+
     function drawAsteroids() {
       for (const asteroid of asteroids) {
         ctx.save();
         ctx.translate(asteroid.x, asteroid.y);
         ctx.rotate(asteroid.rotation);
         const radius = asteroid.radius;
-        ctx.fillStyle = '#d94c5c';
-        ctx.shadowColor = '#ff7c88';
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, radius, radius * 0.72, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(102, 9, 24, 0.48)';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, radius * 0.48, radius * 0.27, 0, 0, Math.PI * 2);
-        ctx.fill();
+        const isGlucose = asteroid.kind === 'glucose';
+        const isHormoneRace = asteroid.kind === 'hormone-race';
+
+        ctx.fillStyle = asteroid.color || '#f5f7ff';
+        ctx.shadowColor = isGlucose ? '#ffffff' : isHormoneRace ? '#ff8ae6' : '#ff7c88';
+        ctx.shadowBlur = 12;
+
+        if (isGlucose) {
+          ctx.beginPath();
+          ctx.moveTo(0, -radius);
+          ctx.lineTo(radius * 0.75, -radius * 0.3);
+          ctx.lineTo(radius * 0.9, radius * 0.7);
+          ctx.lineTo(0, radius);
+          ctx.lineTo(-radius * 0.9, radius * 0.7);
+          ctx.lineTo(-radius * 0.75, -radius * 0.3);
+          ctx.closePath();
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = 'rgba(255,255,255,0.7)';
+          ctx.beginPath();
+          ctx.moveTo(-radius * 0.35, -radius * 0.2);
+          ctx.lineTo(radius * 0.12, -radius * 0.65);
+          ctx.lineTo(radius * 0.18, radius * 0.18);
+          ctx.lineTo(-radius * 0.22, radius * 0.28);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#fff1f2';
+          ctx.font = '700 11px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('GLUCOSA', 0, radius + 18);
+        } else if (isHormoneRace) {
+          ctx.beginPath();
+          ctx.moveTo(-radius * 0.9, -radius * 0.7);
+          ctx.bezierCurveTo(-radius * 1.3, -radius * 0.1, -radius * 1.1, radius * 0.9, 0, radius * 0.95);
+          ctx.bezierCurveTo(radius * 1.1, radius * 0.9, radius * 1.3, -radius * 0.1, radius * 0.9, -radius * 0.7);
+          ctx.bezierCurveTo(radius * 0.5, -radius * 1.05, -radius * 0.5, -radius * 1.05, -radius * 0.9, -radius * 0.7);
+          ctx.fill();
+          ctx.fillStyle = '#fff1f2';
+          ctx.font = '700 10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('HORMONA', 0, radius + 16);
+        } else {
+          ctx.beginPath();
+          ctx.ellipse(0, 0, radius, radius * 0.72, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = 'rgba(102, 9, 24, 0.48)';
+          ctx.beginPath();
+          ctx.ellipse(0, 0, radius * 0.48, radius * 0.27, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
         ctx.restore();
       }
     }
@@ -838,6 +1023,11 @@ juego h.a
       ctx.bezierCurveTo(hormone.size * 0.35, -hormone.size * 1.2, -hormone.size * 0.35, -hormone.size * 1.2, -hormone.size * 0.7, -hormone.size * 0.6);
       ctx.fill();
       ctx.restore();
+
+      ctx.fillStyle = '#fff1f2';
+      ctx.textAlign = 'center';
+      ctx.font = '700 12px Arial';
+      ctx.fillText('Insulina', hormone.x, hormone.y + hormone.size + 18);
     }
 
     function drawBoss() {
@@ -925,6 +1115,7 @@ juego h.a
       drawBoss();
       drawBrain();
       drawPlayer();
+      drawTransitionHormone();
       drawParticles();
 
       if (state === 'ready') {
@@ -953,6 +1144,8 @@ juego h.a
 
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2 - 28;
+      drawNeuralCircuit(centerX, centerY);
+
       ctx.save();
       ctx.translate(centerX, centerY);
 
@@ -1009,6 +1202,65 @@ juego h.a
       ctx.fillText('Pulsa ESPACIO o JUGAR para jugar otra vez', centerX, canvas.height / 2 + 157);
     }
 
+    function drawNeuralCircuit(centerX, centerY) {
+      const pulse = performance.now() * 0.004;
+      const nodes = [
+        [-250, -115], [-180, -175], [-105, -112], [0, -165],
+        [105, -112], [180, -175], [250, -115], [-275, 28],
+        [-185, 78], [185, 78], [275, 28], [-110, 142],
+        [0, 172], [110, 142]
+      ];
+      const connections = [
+        [0, 1], [0, 2], [1, 3], [2, 3], [2, 4], [3, 5],
+        [4, 5], [4, 6], [0, 7], [7, 8], [8, 11], [11, 12],
+        [12, 13], [13, 9], [9, 10], [6, 10], [2, 8], [4, 9]
+      ];
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#6ee7ff';
+      ctx.shadowBlur = 14;
+      ctx.strokeStyle = 'rgba(110, 231, 255, 0.65)';
+
+      for (const [fromIndex, toIndex] of connections) {
+        const [fromX, fromY] = nodes[fromIndex];
+        const [toX, toY] = nodes[toIndex];
+        ctx.beginPath();
+        ctx.moveTo(centerX + fromX, centerY + fromY);
+        ctx.lineTo(centerX + toX, centerY + toY);
+        ctx.stroke();
+      }
+
+      for (let i = 0; i < nodes.length; i++) {
+        const [nodeX, nodeY] = nodes[i];
+        const glow = 3 + Math.sin(pulse + i * 0.8) * 2;
+        ctx.fillStyle = '#b8f5ff';
+        ctx.beginPath();
+        ctx.arc(centerX + nodeX, centerY + nodeY, glow, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const signalIndex = Math.floor(pulse * 2) % connections.length;
+      const [fromIndex, toIndex] = connections[signalIndex];
+      const progress = (pulse * 2) % 1;
+      const [fromX, fromY] = nodes[fromIndex];
+      const [toX, toY] = nodes[toIndex];
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.arc(
+        centerX + fromX + (toX - fromX) * progress,
+        centerY + fromY + (toY - fromY) * progress,
+        5,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+      ctx.restore();
+    }
+
     function loop(timestamp) {
       const dt = Math.min((timestamp - lastTime) / 1000 || 0.016, 0.032);
       lastTime = timestamp;
@@ -1020,8 +1272,20 @@ juego h.a
     }
 
     document.addEventListener('keydown', (event) => {
-      if (event.code === 'ArrowLeft' || event.code === 'KeyA') keys.left = true;
-      if (event.code === 'ArrowRight' || event.code === 'KeyD') keys.right = true;
+      if (event.code === 'ArrowLeft' || event.code === 'KeyA') {
+        if (state === 'transition') {
+          advanceLevel();
+          return;
+        }
+        keys.left = true;
+      }
+      if (event.code === 'ArrowRight' || event.code === 'KeyD') {
+        if (state === 'transition') {
+          advanceLevel();
+          return;
+        }
+        keys.right = true;
+      }
       if (event.code === 'ArrowUp' || event.code === 'KeyW') keys.up = true;
       if (event.code === 'ArrowDown' || event.code === 'KeyS') keys.down = true;
       if (event.code === 'Space') {
